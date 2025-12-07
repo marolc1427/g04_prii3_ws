@@ -5,14 +5,12 @@
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.2-green?style=for-the-badge&logo=opencv)
 ![Status](https://img.shields.io/badge/Status-Development-yellow?style=for-the-badge)
 
-### Actualidad del proyecto:
-* Lectura de ArUcos (FOV, archi.py, movimiento del robot...) y clarificar la versión de OpenCV
-* Movimiento del robot sabiendo los ArUcos del paso anterior
-* Podríamos crear un archivo .sh para ejecutar todo el proyecto desde una única terminal 
-* Falta actualizar el readme con las novedades anteriores ya implementadas
-
----
-
+### ¿Cómo puedo ayudar?
+* **Correción de la Detección de ArUcos**: Implementar con la versión de OpenCV 4.2 (o 4.6?) el reconocimiento de ArUcos del tablero. Se debe realizar dentro del nodo [`eurobot_basic.py`](./src/g04_prii3_eurobot_turtlebot/g04_prii3_eurobot_turtlebot/eurobot_basic.py), ya hay algo implementado pero no funciona correctamente (el topic y el diccionario es el correcto de este archivo).
+* Movimiento del robot sabiendo los ArUcos del paso anterior. Se debe de crear un nuevo nodo al lado de  [`eurobot_basic.py`](./src/g04_prii3_eurobot_turtlebot/g04_prii3_eurobot_turtlebot/eurobot_basic.py) e incluirlo en el launch y en el  [`setup.py`](./src/g04_prii3_eurobot_turtlebot/setup.py)
+* Podríamos crear un archivo .sh para ejecutar todo el proyecto desde una única terminal.
+* Falta actualizar el readme con las novedades anteriores ya implementadas.
+  
 ### Instrucciones y versiones:
 * Se recomienda usar el workspace de ROS2 para usar los comandos explicados, sino, las rutas serán diferentes que las indicadas.
 
