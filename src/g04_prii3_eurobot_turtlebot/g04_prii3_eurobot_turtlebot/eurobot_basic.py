@@ -1,61 +1,218 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2
 import cv2.aruco as aruco
 import numpy as np
 
-class ArucoDetector(Node):
+
+class OverheadArucoDetector(Node):
     def __init__(self):
-        super().__init__('aruco_detector')
-        self.bridge = CvBridge()
+        super().__init__('overhead_aruco_detector')
+
+        # Suscripción a la cámara cenital (Gazebo plugin publica en /overhead_camera/image_raw)
         self.subscription = self.create_subscription(
             Image,
             '/overhead_camera/image_raw',
             self.image_callback,
-            10  # cola de 10 imágenes
+            10
         )
 
-        # Diccionario 4x4_50
-        self.aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_50)
+        # Publicador de detecciones como texto (JSON compacto)
+        self.detections_pub = self.create_publisher(String, '/overhead_camera/aruco_detections', 10)
+        # Publicador de imagen anotada para RViz2
+        self.image_annotated_pub = self.create_publisher(Image, '/overhead_camera/image_annotated', 10)
+
+        # Bridge ROS <-> OpenCV
+        self.bridge = CvBridge()
+
+        # Diccionario 4x4_50 (OpenCV 4.6)
+        # Preferir getPredefinedDictionary en OpenCV >= 4.5
+        try:
+            self.dictionary = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
+        except AttributeError:
+            self.dictionary = aruco.Dictionary_get(aruco.DICT_4X4_50)
+
+        # Parámetros de detector, ajustados para robustez
         self.parameters = aruco.DetectorParameters_create()
+        # Ampliar ventanas y tamaños para captar más marcadores
+        self.parameters.adaptiveThreshWinSizeMin = 3
+        self.parameters.adaptiveThreshWinSizeMax = 53
+        self.parameters.adaptiveThreshWinSizeStep = 10
+        self.parameters.minMarkerPerimeterRate = 0.02
+        self.parameters.maxMarkerPerimeterRate = 6.0
+        self.parameters.polygonalApproxAccuracyRate = 0.05
+        self.parameters.minCornerDistanceRate = 0.03
+        self.parameters.minDistanceToBorder = 1
+        self.parameters.minMarkerDistanceRate = 0.03
+        self.parameters.cornerRefinementMethod = aruco.CORNER_REFINE_SUBPIX
+        self.parameters.cornerRefinementWinSize = 5
+        self.parameters.cornerRefinementMaxIterations = 30
+        self.parameters.cornerRefinementMinAccuracy = 0.1
+       
+        # Cámara cenital: matriz intrínseca aproximada y sin distorsión
+        self.camera_matrix = np.array([
+            [600.0, 0, 640.0],  # cx ~ mitad de 1280
+            [0, 600.0, 360.0],  # cy ~ mitad de 720
+            [0, 0, 1.0]
+        ], dtype=np.float32)
+        self.dist_coeffs = np.zeros((4, 1), dtype=np.float32)
 
-    def image_callback(self, msg):
-        # Convertir ROS Image a OpenCV
-        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        self.detect_aruco(frame)
+        # Tamaño del marcador en metros (ajústalo si es distinto)
+        self.marker_length = 0.15
 
-    def detect_aruco(self, frame):
-        # --- Preprocesamiento ---
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)  # reduce ruido
-        gray = cv2.equalizeHist(gray)  # mejora contraste
+        self.get_logger().info('Suscrito a /overhead_camera/image_raw')
+        self.get_logger().info('Publicando detecciones en /overhead_camera/aruco_detections (String)')
 
-        # --- Detección ---
-        corners, ids, rejected = aruco.detectMarkers(
-            gray,
-            self.aruco_dict,
-            parameters=self.parameters
-        )
+    def image_callback(self, msg: Image):
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            self.get_logger().error(f'Error convirtiendo imagen: {e}')
+            return
 
-        if ids is not None:
-            aruco.drawDetectedMarkers(frame, corners, ids)
-            print("Detected IDs:", ids.flatten())
+        # Preprocesamiento: usar escala de grises para mejorar contraste
+        gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+        # Detectar marcadores ArUco con padding para captar los que están pegados al borde
+        pad = 20  # píxeles de margen artificial
+        gray_padded = cv2.copyMakeBorder(gray, pad, pad, pad, pad, borderType=cv2.BORDER_CONSTANT, value=255)
+        # Primera pasada sobre imagen acolchada
+        corners_p1, ids_p1, _ = aruco.detectMarkers(gray_padded, self.dictionary, parameters=self.parameters)
 
-        cv2.imshow("Aruco Detection", frame)
-        cv2.waitKey(1)
+        # Segunda pasada con mejora de contraste (CLAHE)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray_clahe = clahe.apply(gray)
+        gray_clahe_padded = cv2.copyMakeBorder(gray_clahe, pad, pad, pad, pad, borderType=cv2.BORDER_CONSTANT, value=255)
+        corners_p2, ids_p2, _ = aruco.detectMarkers(gray_clahe_padded, self.dictionary, parameters=self.parameters)
+
+        # Tercera pasada con ecualización global
+        gray_eq = cv2.equalizeHist(gray)
+        gray_eq_padded = cv2.copyMakeBorder(gray_eq, pad, pad, pad, pad, borderType=cv2.BORDER_CONSTANT, value=255)
+        corners_p3, ids_p3, _ = aruco.detectMarkers(gray_eq_padded, self.dictionary, parameters=self.parameters)
+
+        # Unir resultados evitando duplicados por ID
+        merged_ids = []
+        merged_corners = []
+        def add_results(c, i):
+            if i is None or len(i) == 0:
+                return
+            for idx, cid in enumerate(i):
+                mid = int(cid[0])
+                if mid not in merged_ids:
+                    merged_ids.append(mid)
+                    # remover padding de las esquinas detectadas
+                    pts = c[idx]
+                    pts_adjusted = pts.copy()
+                    pts_adjusted[0][:, 0] -= pad
+                    pts_adjusted[0][:, 1] -= pad
+                    merged_corners.append(pts_adjusted)
+
+        add_results(corners_p1, ids_p1)
+        add_results(corners_p2, ids_p2)
+        add_results(corners_p3, ids_p3)
+
+        if len(merged_ids) > 0:
+            # Reconstruir formato ids esperado por aruco APIs
+            ids = np.array([[mid] for mid in merged_ids], dtype=np.int32)
+            corners = merged_corners
+        else:
+            ids = None
+            corners = []
+
+        if ids is None or len(ids) == 0:
+            empty_msg = String()
+            empty_msg.data = '[]'
+            self.detections_pub.publish(empty_msg)
+            # publicar imagen sin anotaciones para RViz
+            try:
+                self.image_annotated_pub.publish(self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8'))
+            except Exception:
+                pass
+            return
+
+        # Estimar pose (opcional)
+        try:
+            rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
+                corners, self.marker_length, self.camera_matrix, self.dist_coeffs)
+        except Exception:
+            rvecs, tvecs = None, None
+
+        detections = []
+        h, w = cv_image.shape[:2]
+
+        def marker_valid(pts):
+            # pts: (1,4,2)
+            p = pts[0]
+            # bounds check
+            if np.any(p[:, 0] < 0) or np.any(p[:, 0] >= w) or np.any(p[:, 1] < 0) or np.any(p[:, 1] >= h):
+                return False
+            # side lengths
+            l = []
+            for j in range(4):
+                a = p[j]
+                b = p[(j + 1) % 4]
+                l.append(np.linalg.norm(a - b))
+            l = np.array(l)
+            mean_l = np.mean(l)
+            if mean_l < 15 or mean_l > 400:  # reject too small/large
+                return False
+            # squareness: low variance across side lengths
+            if np.std(l) / (mean_l + 1e-6) > 0.35:
+                return False
+            # area within plausible range
+            area = cv2.contourArea(p.astype(np.float32))
+            if area < 300 or area > (w * h * 0.15):
+                return False
+            return True
+
+        for i in range(len(ids)):
+            if not marker_valid(corners[i]):
+                continue
+            marker_id = int(ids[i][0])
+            center = np.mean(corners[i][0], axis=0)
+            cx, cy = float(center[0]), float(center[1])
+
+            if tvecs is not None:
+                tx, ty, tz = float(tvecs[i][0][0]), float(tvecs[i][0][1]), float(tvecs[i][0][2])
+                detections.append({'id': marker_id, 'px': cx, 'py': cy, 'tx': tx, 'ty': ty, 'tz': tz})
+            else:
+                detections.append({'id': marker_id, 'px': cx, 'py': cy})
+
+        # Publicar como cadena JSON compacta
+        def fmt(d):
+            parts = [f'"id":{d["id"]}', f'"px":{d["px"]:.2f}', f'"py":{d["py"]:.2f}']
+            if 'tx' in d:
+                parts += [f'"tx":{d["tx"]:.4f}', f'"ty":{d["ty"]:.4f}', f'"tz":{d["tz"]:.4f}']
+            return '{' + ','.join(parts) + '}'
+
+        out = String()
+        out.data = '[' + ','.join(fmt(d) for d in detections) + ']'
+        self.detections_pub.publish(out)
+
+        # Dibujar marcadores y ejes en la imagen para RViz
+        try:
+            if ids is not None and len(ids) > 0:
+                aruco.drawDetectedMarkers(cv_image, corners, ids)
+            if rvecs is not None and tvecs is not None:
+                for i in range(len(ids)):
+                    cv2.drawFrameAxes(cv_image, self.camera_matrix, self.dist_coeffs, rvecs[i], tvecs[i], self.marker_length)
+            # Publicar imagen anotada
+            self.image_annotated_pub.publish(self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8'))
+        except Exception:
+            pass
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ArucoDetector()
+    node = OverheadArucoDetector()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    cv2.destroyAllWindows()
-    rclpy.shutdown()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

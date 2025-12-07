@@ -6,7 +6,9 @@
 ![Status](https://img.shields.io/badge/Status-Development-yellow?style=for-the-badge)
 
 ### ¿Cómo puedo ayudar?
-* **Correción de la Detección de ArUcos**: Implementar con la versión de OpenCV 4.2 (o 4.6?) el reconocimiento de ArUcos del tablero. Se debe realizar dentro del nodo [`eurobot_basic.py`](./src/g04_prii3_eurobot_turtlebot/g04_prii3_eurobot_turtlebot/eurobot_basic.py), ya hay algo implementado pero no funciona correctamente (el topic y el diccionario es el correcto de este archivo).
+* **Correción de la Detección de ArUcos**: COMPLETADO. Implementado el reconocimiento de ArUcos del tablero con OpenCV 4.6 (compatible 4.2) dentro del nodo [`eurobot_basic.py`](./src/g04_prii3_eurobot_turtlebot/g04_prii3_eurobot_turtlebot/eurobot_basic.py). Ahora se publica:
+	- `'/overhead_camera/aruco_detections'` (`std_msgs/String`) con detecciones en JSON compacto.
+	- `'/overhead_camera/image_annotated'` (`sensor_msgs/Image`) para visualización en RViz2. Este tópico es temporal y podría eliminarse en el futuro.
 * Movimiento del robot sabiendo los ArUcos del paso anterior. Se debe de crear un nuevo nodo al lado de  [`eurobot_basic.py`](./src/g04_prii3_eurobot_turtlebot/g04_prii3_eurobot_turtlebot/eurobot_basic.py) e incluirlo en el launch y en el  [`setup.py`](./src/g04_prii3_eurobot_turtlebot/setup.py)
 * Podríamos crear un archivo .sh para ejecutar todo el proyecto desde una única terminal.
 * Falta actualizar el readme con las novedades anteriores ya implementadas.
@@ -42,11 +44,28 @@ ros2 launch g04_prii3_eurobot_turtlebot eurobot_world.launch.py
 
 ---
 
-## 2) Ejecución del launch lectura de ArUcos y movimiento del Waffle (Terminal 2)
+## 2) Lectura de ArUcos y visualización (Terminal 2)
 
-Actualmente, NO funcional
+Funcional: detección de ArUcos y publicación de tópicos.
 
 ```bash
 source install/setup.bash
+# Nodo de detección (también accesible vía launch)
+ros2 run g04_prii3_eurobot_turtlebot eurobot_basic
+```
+
+Opcional (vía launch):
+```bash
+source install/setup.bash
 ros2 launch g04_prii3_eurobot_turtlebot eurobot_basic_launch.py
+```
+
+Visualización en RViz2 (añade un display Image apuntando a `/overhead_camera/image_annotated`):
+```bash
+rviz2
+```
+
+Comprobación por terminal de las detecciones:
+```bash
+ros2 topic echo /overhead_camera/aruco_detections
 ```

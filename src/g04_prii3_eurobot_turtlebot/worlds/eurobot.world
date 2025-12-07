@@ -10,12 +10,13 @@
     <!-- Suelo -->
     <include>
       <uri>model://ground_plane</uri>
+      <pose>0 0 0 0 0 0</pose>
     </include>
 
     <!-- ArUco 8 -->
     <include>
       <uri>model://aruco_8</uri>
-      <pose>1.4 0.9 0.1 0 0 0</pose>
+      <pose>-1.4 -0.9 0.1 0 0 0</pose>
     </include>
 
     <!-- Valla -->
@@ -27,7 +28,7 @@
     <!-- Suelo Eurobot -->
     <include>
       <uri>model://eurobot_ground</uri>
-      <pose>0 0 0 0 0 0</pose>
+      <pose>0 0 0 0 0 3.14159265</pose>
     </include>
 
 
@@ -37,7 +38,7 @@
 
     <model name='overhead_camera'>
       <static>1</static>
-      <pose>0 -1 1.5 0 0.964 1.57</pose>
+      <pose>-0.063362 -1.014103 1.520390 0 0.963999 1.570000</pose>
 
       <link name='overhead_camera_link'>
         <sensor name='camera_sensor' type='camera'>
