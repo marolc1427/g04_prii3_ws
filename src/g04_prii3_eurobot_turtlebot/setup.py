@@ -1,4 +1,6 @@
 from setuptools import setup
+import os
+from glob import glob
 
 package_name = 'g04_prii3_eurobot_turtlebot'
 
@@ -10,7 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/eurobot_world.launch.py']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
         ('share/' + package_name + '/worlds', ['worlds/eurobot.world']),
     ],
     install_requires=['setuptools'],
@@ -22,6 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'eurobot_basic = g04_prii3_eurobot_turtlebot.eurobot_basic:main',
         ],
     },
 )
