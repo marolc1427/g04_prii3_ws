@@ -6,12 +6,13 @@
 ![Status](https://img.shields.io/badge/Status-Development-yellow?style=for-the-badge)
 
 ### ¿Cómo puedo ayudar?
-* Implementar en el paquete de JetBot el código adaptado para el robot real
+* Implementar en el paquete de JetBot el código adaptado para el robot real.
 * Podríamos crear un archivo .sh para ejecutar todo el proyecto desde una única terminal.
 * Falta actualizar el readme con las novedades anteriores ya implementadas.
   
 ### Instrucciones y versiones:
 * Se recomienda usar el workspace de ROS2 para usar los comandos explicados, sino, las rutas serán diferentes que las indicadas.
+* Se debe de utilizar la versión de OpenCV 4.6, sino la detección de los ArUcos no será óptima para el trabajo.
 
 ---
 
@@ -43,15 +44,8 @@ ros2 launch g04_prii3_eurobot_turtlebot eurobot_world.launch.py
 
 ## 2) Lectura de ArUcos y visualización (Terminal 2)
 
-Funcional: detección de ArUcos y publicación de tópicos.
+Detección de ArUcos y publicación de tópicos.
 
-```bash
-source install/setup.bash
-# Nodo de detección (también accesible vía launch)
-ros2 run g04_prii3_eurobot_turtlebot eurobot_basic
-```
-
-Opcional (vía launch):
 ```bash
 source install/setup.bash
 ros2 launch g04_prii3_eurobot_turtlebot eurobot_basic_launch.py
@@ -65,4 +59,11 @@ rviz2
 Comprobación por terminal de las detecciones:
 ```bash
 ros2 topic echo /overhead_camera/aruco_detections
+```
+
+## 3) Movimiento del Robot (Terminal 3)
+
+```bash
+source install/setup.bash
+ros2 run g04_prii3_eurobot_turtlebot aruco_go_to
 ```
