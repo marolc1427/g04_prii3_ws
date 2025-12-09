@@ -60,6 +60,41 @@ Comprobación por terminal de las detecciones:
 ```bash
 ros2 topic echo /overhead_camera/aruco_detections
 ```
+## 2.2) Lectura de ArUcos y visualización new_eurobot_basic.py (Terminal 2)
+
+Este nuevo nodo extiende `eurobot_basic.py` con publicaciones por ID y pequeños cambios en el formato.
+
+**Diferencias clave**
+
+- **Topics por ID**: publica de forma individual en:
+	- `/overhead_camera/aruco_20`, `/overhead_camera/aruco_21`, `/overhead_camera/aruco_22`, `/overhead_camera/aruco_23`, `/overhead_camera/aruco_3`, `/overhead_camera/aruco_8`.
+- **Contenido JSON por ID**: incluye `id`, `px`, `py`, `orientation` y, si hay estimación de pose, `rvec` y `tvec` del marcador.
+- **Precisión**: valores redondeados a **4 decimales** en los topics por ID.
+- **Imagen anotada**: igual que el nodo anterior, publica `/overhead_camera/image_annotated` para visualizar en RViz2.
+- **Launch dedicado**: se lanza con `new_eurobot_basic.launch.py`.
+
+**Cómo ejecutarlo**
+
+```bash
+source install/setup.bash
+ros2 launch g04_prii3_eurobot_turtlebot new_eurobot_basic.launch.py
+```
+
+Opcional (visualización en RViz2): añade un display Image apuntando a `/overhead_camera/image_annotated`.
+
+Comprobaciones por terminal:
+
+```bash
+ros2 topic echo /overhead_camera/aruco_20
+ros2 topic echo /overhead_camera/aruco_8
+```
+
+Ejemplo de mensaje por ID:
+
+```json
+{"id":20,"px":961.824,"py":479.809,"orientation":-179.707,"rvec":[-0.0041,-3.0299,1.5708],"tvec":[0.1203,0.0301,0.8502]}
+```
+
 
 ## 3) Movimiento del Robot (Terminal 3)
 
