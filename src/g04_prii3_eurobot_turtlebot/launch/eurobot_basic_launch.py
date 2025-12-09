@@ -8,5 +8,5 @@ def generate_launch_description():
             executable='eurobot_basic',
             name='eurobot_basic_node',
             output='screen'
-        )
+        ),
     ])

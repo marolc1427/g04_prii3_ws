@@ -2,14 +2,11 @@
 
 ![ROS2 Foxy](https://img.shields.io/badge/ROS2-Foxy-red?style=for-the-badge&logo=ros)
 ![Ubuntu 20.04](https://img.shields.io/badge/OS-Ubuntu_20.04-orange?style=for-the-badge&logo=ubuntu)
-![OpenCV](https://img.shields.io/badge/OpenCV-4.2-green?style=for-the-badge&logo=opencv)
+![OpenCV](https://img.shields.io/badge/OpenCV-4.6-green?style=for-the-badge&logo=opencv)
 ![Status](https://img.shields.io/badge/Status-Development-yellow?style=for-the-badge)
 
 ### ¿Cómo puedo ayudar?
-* **Correción de la Detección de ArUcos**: COMPLETADO. Implementado el reconocimiento de ArUcos del tablero con OpenCV 4.6 (compatible 4.2) dentro del nodo [`eurobot_basic.py`](./src/g04_prii3_eurobot_turtlebot/g04_prii3_eurobot_turtlebot/eurobot_basic.py). Ahora se publica:
-	- `'/overhead_camera/aruco_detections'` (`std_msgs/String`) con detecciones en JSON compacto.
-	- `'/overhead_camera/image_annotated'` (`sensor_msgs/Image`) para visualización en RViz2. Este tópico es temporal y podría eliminarse en el futuro.
-* Movimiento del robot sabiendo los ArUcos del paso anterior. Se debe de crear un nuevo nodo al lado de  [`eurobot_basic.py`](./src/g04_prii3_eurobot_turtlebot/g04_prii3_eurobot_turtlebot/eurobot_basic.py) e incluirlo en el launch y en el  [`setup.py`](./src/g04_prii3_eurobot_turtlebot/setup.py)
+* Implementar en el paquete de JetBot el código adaptado para el robot real
 * Podríamos crear un archivo .sh para ejecutar todo el proyecto desde una única terminal.
 * Falta actualizar el readme con las novedades anteriores ya implementadas.
   

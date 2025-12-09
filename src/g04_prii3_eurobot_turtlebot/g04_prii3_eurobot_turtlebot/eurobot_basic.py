@@ -167,6 +167,8 @@ class OverheadArucoDetector(Node):
                 return False
             return True
 
+        import math
+
         for i in range(len(ids)):
             if not marker_valid(corners[i]):
                 continue
@@ -174,17 +176,29 @@ class OverheadArucoDetector(Node):
             center = np.mean(corners[i][0], axis=0)
             cx, cy = float(center[0]), float(center[1])
 
-            if tvecs is not None:
-                tx, ty, tz = float(tvecs[i][0][0]), float(tvecs[i][0][1]), float(tvecs[i][0][2])
-                detections.append({'id': marker_id, 'px': cx, 'py': cy, 'tx': tx, 'ty': ty, 'tz': tz})
-            else:
-                detections.append({'id': marker_id, 'px': cx, 'py': cy})
+            # Calcular orientación (yaw) a partir de las dos primeras esquinas.
+            # Usamos la arista (corner 0 -> corner 1) para definir el eje local x del marcador
+            # y calculamos el ángulo respecto al eje X de la imagen.
+            try:
+                p = corners[i][0]
+                dx = float(p[1][0] - p[0][0])
+                dy = float(p[1][1] - p[0][1])
+                angle_rad = math.atan2(dy, dx)
+                angle_deg = math.degrees(angle_rad)
+                # Normalizar a [-180, 180]
+                if angle_deg > 180.0:
+                    angle_deg -= 360.0
+                if angle_deg <= -180.0:
+                    angle_deg += 360.0
+            except Exception:
+                angle_deg = 0.0
+
+            # Publicar solo los campos solicitados: id, px, py, orientation (grados)
+            detections.append({'id': marker_id, 'px': cx, 'py': cy, 'orientation': angle_deg})
 
         # Publicar como cadena JSON compacta
         def fmt(d):
-            parts = [f'"id":{d["id"]}', f'"px":{d["px"]:.2f}', f'"py":{d["py"]:.2f}']
-            if 'tx' in d:
-                parts += [f'"tx":{d["tx"]:.4f}', f'"ty":{d["ty"]:.4f}', f'"tz":{d["tz"]:.4f}']
+            parts = [f'"id":{d["id"]}', f'"px":{d["px"]:.2f}', f'"py":{d["py"]:.2f}', f'"orientation":{d["orientation"]:.2f}']
             return '{' + ','.join(parts) + '}'
 
         out = String()
