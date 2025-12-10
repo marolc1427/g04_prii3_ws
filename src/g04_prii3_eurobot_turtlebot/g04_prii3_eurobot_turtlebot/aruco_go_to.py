@@ -17,8 +17,18 @@ class ArucoGoTo(Node):
         super().__init__('aruco_go_to')
         # Publicador de velocidad
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        # Suscriptor a detecciones ArUco (JSON string)
-        self.detections_sub = self.create_subscription(String, '/overhead_camera/aruco_detections', self.detections_callback, 10)
+        # Suscripciones a topics individuales por cada ArUco detectado.
+        # Los topics son `/overhead_camera/aruco_{id}` y cada uno publica un String
+        # con un JSON como: '{"id":8,"px":93.3449,"py":675.0884,"orientation":-179.8148,"rvec":[...],"tvec":[...]}'
+        # IDs estrictos: 3,20,8,21,22,23
+        self.aruco_topic_ids = [3, 20, 8, 21, 22, 23]
+        # Estructura para guardar la última detección cruda por tópico (sin relativo)
+        # raw_detections: {id: {'px': float, 'py': float, 'orientation': float, 'rvec': [...], 'tvec': [...]}}
+        self.raw_detections = {}
+        # Crear suscripciones individuales
+        for tid in self.aruco_topic_ids:
+            # usar lambda para capturar tid en el callback
+            self.create_subscription(String, f'/overhead_camera/aruco_{tid}', lambda msg, tid=tid: self.aruco_topic_callback(msg, tid), 10)
 
         # ArUco de referencia (origen del sistema de coordenadas)
         self.reference_aruco_id = 8
@@ -28,8 +38,6 @@ class ArucoGoTo(Node):
         # Mapa de AruCos: {id: {'x': float, 'y': float, 'px': float, 'py': float}}
         # Coordenadas relativas al ArUco 8
         self.aruco_map = {}
-        # Posición de referencia (ArUco 8) en píxeles
-        self.reference_position = None
         
         self.lock = threading.Lock()
 
@@ -41,7 +49,7 @@ class ArucoGoTo(Node):
         # Estado de navegación
         self.target_id = None  # ID del ArUco objetivo
         self.is_navigating = False  # Si está en proceso de navegación
-        self.navigation_stage = None  # 'rotating' o 'moving_forward'
+        # navigation_stage no se usa, se elimina para ahorrar memoria
         self.angle_tolerance_deg = 5.0  # Tolerancia de ángulo antes de avanzar
         self.distance_threshold_px = 30.0  # Distancia mínima para considerar llegada
         self.rotation_start_time = None  # Para timeout de rotación
@@ -64,62 +72,83 @@ class ArucoGoTo(Node):
         msg.angular.z = float(angular_z)
         self.cmd_pub.publish(msg)
 
-    def detections_callback(self, msg: String):
-        """Callback que recibe detecciones JSON y actualiza el mapa de AruCos.
-        
-        Calcula coordenadas relativas usando ArUco 8 como origen (0,0).
+    def aruco_topic_callback(self, msg: String, tid: int):
+        """Callback para cada topic `/overhead_camera/aruco_{tid}`.
+
+        - Parsea el JSON contenido en `msg.data`.
+        - Guarda la detección en `self.raw_detections[tid]`.
+        - Si existe la referencia (id 8) en `raw_detections`, calcula
+          coordenadas relativas (px,py) respecto a la referencia y actualiza
+          `self.aruco_map` para ser usada por la navegación.
+
+        El JSON esperado tiene la forma:
+        '{"id":8,"px":93.3449,"py":675.0884,"orientation":-179.8148,"rvec":[...],"tvec":[...]}'
         """
         try:
-            arr = json.loads(msg.data)
+            data = json.loads(msg.data)
+        except Exception:
+            # Mensaje no JSON válido
+            return
+
+        # Extraer campos del mensaje si están presentes
+        try:
+            aruco_id = int(data.get('id', tid))
+        except Exception:
+            aruco_id = tid
+
+        try:
+            px = float(data.get('px', 0.0))
+            py = float(data.get('py', 0.0))
         except Exception:
             return
 
-        # Buscar ArUco de referencia (id 8)
-        ref_aruco = None
-        all_detections = []
-        
-        for item in arr:
-            try:
-                aruco_id = int(item.get('id'))
-                px = float(item.get('px', 0.0))
-                py = float(item.get('py', 0.0))
-                orientation = float(item.get('orientation', 0.0))
-                
-                all_detections.append({
-                    'id': aruco_id,
-                    'px': px,
-                    'py': py,
-                    'orientation': orientation
-                })
-                
-                if aruco_id == self.reference_aruco_id:
-                    ref_aruco = {'px': px, 'py': py}
-            except Exception:
-                continue
-        
-        if ref_aruco is None:
-            # No se ve el ArUco de referencia, no podemos calcular coordenadas relativas
-            return
-        
-        # Actualizar mapa con coordenadas relativas al ArUco 8
-        new_map = {}
-        for det in all_detections:
-            aruco_id = det['id']
-            # Calcular coordenadas relativas (en píxeles por ahora)
-            # x positivo a la derecha, y positivo hacia abajo (sistema de imagen)
-            rel_x = det['px'] - ref_aruco['px']
-            rel_y = det['py'] - ref_aruco['py']
-            
-            new_map[aruco_id] = {
-                'x': rel_x,
-                'y': rel_y,
-                'px': det['px'],
-                'py': det['py'],
-                'orientation': det['orientation']
-            }
-        
+        # orientation puede venir como float
+        try:
+            orientation = float(data.get('orientation', 0.0))
+        except Exception:
+            orientation = 0.0
+
+        # rvec y tvec opcionales (listas)
+        rvec = data.get('rvec')
+        tvec = data.get('tvec')
+
+        # Guardar la detección cruda
         with self.lock:
-            self.reference_position = ref_aruco
+            self.raw_detections[aruco_id] = {
+                'px': px,
+                'py': py,
+                'orientation': orientation,
+                'rvec': rvec,
+                'tvec': tvec
+            }
+            # Si no tenemos la referencia (id 8), no podemos calcular relativos
+            if self.reference_aruco_id not in self.raw_detections:
+                # limpiar mapa hasta que tengamos la referencia
+                self.aruco_map = {}
+                return
+
+            # Si tenemos referencia, calcular mapa relativo para todos los ArUcos
+            ref = self.raw_detections[self.reference_aruco_id]
+            ref_px = ref['px']
+            ref_py = ref['py']
+
+            new_map = {}
+            for aid, det in self.raw_detections.items():
+                # Asumir que det contiene 'px' y 'py' válidos (comprobado al parser)
+                rel_x = det['px'] - ref_px
+                rel_y = det['py'] - ref_py
+
+                new_map[aid] = {
+                    'x': rel_x,
+                    'y': rel_y,
+                    'px': det['px'],
+                    'py': det['py'],
+                    'orientation': det.get('orientation', 0.0),
+                    'rvec': det.get('rvec'),
+                    'tvec': det.get('tvec')
+                }
+
+            # Actualizar estado compartido
             self.aruco_map = new_map
 
     def print_aruco_map(self):

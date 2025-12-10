@@ -27,6 +27,7 @@ setup(
             'eurobot_basic = g04_prii3_eurobot_turtlebot.eurobot_basic:main',
             'aruco_go_to = g04_prii3_eurobot_turtlebot.aruco_go_to:main',
             'new_eurobot_basic = g04_prii3_eurobot_turtlebot.new_eurobot_basic:main',
+            'new_aruco_go_to = g04_prii3_eurobot_turtlebot.new_aruco_go_to:main',
         ],
     },
 )

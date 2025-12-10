@@ -42,7 +42,7 @@ ros2 launch g04_prii3_eurobot_turtlebot eurobot_world.launch.py
 
 ---
 
-## 2) Lectura de ArUcos y visualización (Terminal 2)
+## 2.1) Lectura de ArUcos y visualización (Terminal 2)
 
 Detección de ArUcos y publicación de tópicos.
 
@@ -96,9 +96,16 @@ Ejemplo de mensaje por ID:
 ```
 
 
-## 3) Movimiento del Robot (Terminal 3)
+## 3.1) Movimiento del Robot (Terminal 3)
 
 ```bash
 source install/setup.bash
 ros2 run g04_prii3_eurobot_turtlebot aruco_go_to
+```
+
+## 3.2) Movimiento del Robot autónomo (Terminal 3)
+
+```bash
+source install/setup.bash
+ros2 run g04_prii3_eurobot_turtlebot new_aruco_go_to
 ```
