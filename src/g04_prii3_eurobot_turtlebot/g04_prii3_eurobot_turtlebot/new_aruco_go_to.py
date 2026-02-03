@@ -3,84 +3,121 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from geometry_msgs.msg import Twist
 import json
-import threading
 import time
 import math
 
-
 class AutonomousArucoRoute(Node):
-    """Nodo autónomo que recorre los ArUcos 20->21->22->23 usando el robot marcado por ArUco 3.
+    """
+    Nodo autónomo que recorre los ArUcos 20->21->22->23 usando el robot marcado por ArUco 3.
 
-    - Lee únicamente los topics publicados por `new_eurobot_basic` para los IDs
-      3, 20, 21, 22, 23: `/overhead_camera/aruco_{id}` (std_msgs/String con JSON).
-    - Controla el robot publicando en `/cmd_vel` (geometry_msgs/Twist).
-    - Para navegar: gira hasta apuntar al objetivo y luego avanza en línea recta.
-        - La llegada se determina UNICAMENTE por la distancia al marcador (umbral
-            `distance_threshold_px`). Si el marcador no está visible momentáneamente
-            el nodo espera hasta que vuelva a ser detectado.
+    - ArUcos estáticos (20,21,22,23): se leen UNA sola vez al inicio y se guardan.
+    - ArUco del robot (3): se lee continuamente para obtener pose y orientación.
+    - Control de movimiento continuo (proporcional) publicando en /cmd_vel.
+    - Publicación de velocidad limitada a 1 Hz (timer ROS2).
     """
 
     def __init__(self):
         super().__init__('new_aruco_go_to')
 
-        # IDs que queremos escuchar (según petición): robot=3 y objetivos 20,21,22,23
-        self.listen_ids = [3, 20, 21, 22, 23]
+        self.robot_id = 3
+        self.static_ids = [20, 21, 22, 23]
 
-        # Publicador de velocidad del robot (Waffle/Turtlebot plugin escucha /cmd_vel)
+        # Publicador de velocidad del robot
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
 
-        # Suscripciones por ID
-        for tid in self.listen_ids:
-            topic = f'/overhead_camera/aruco_{tid}'
-            self.create_subscription(String, topic, lambda msg, tid=tid: self.aruco_cb(msg, tid), 10)
+        # Pose del robot (actualizada continuamente)
+        self.robot = None  # {'px':float,'py':float,'orientation':float,'last_seen':float}
 
-        # Estructura de detecciones: {id: {'px':float,'py':float,'orientation':float,'last_seen':float}}
-        self.raw = {}
-        self.lock = threading.Lock()
+        # ArUcos estáticos (capturados una sola vez)
+        self.static_markers = {}  # {id: {'px':float,'py':float}}
+        self._static_subs = {}    # {id: Subscription} (se destruyen al capturar)
+
+        # Suscripción continua SOLO del robot
+        self.create_subscription(
+            String,
+            f'/overhead_camera/aruco_{self.robot_id}',
+            self.robot_cb,
+            10
+        )
+
+        # Suscripciones temporales a estáticos (hasta recibir 1ª medida)
+        for tid in self.static_ids:
+            topic = f'/overhead_camera/aruco_{tid}'
+            sub = self.create_subscription(
+                String,
+                topic,
+                lambda msg, tid=tid: self.static_aruco_cb(msg, tid),
+                10,
+            )
+            self._static_subs[tid] = sub
 
         # Ruta a seguir (sin intervención del usuario)
         self.route = [20, 21, 22, 23]
         self.route_index = 0
 
-        # Parámetros de control
-        self.forward_speed = 0.12  # m/s
-        self.turn_speed_rad = 0.5  # rad/s (límite)
-        self.turn_kp = 0.012  # ganancia proporcional para giro
-        self.angle_tolerance_deg = 6.0
+        # Parámetros de control (proporcionales + saturación)
+        self.max_linear_speed = 0.12  # m/s
+        self.max_angular_speed = 0.5  # rad/s
+        self.linear_kp = 0.0020       # (m/s)/px
+        self.angular_kp = 0.012       # (rad/s)/deg
         self.distance_threshold_px = 30.0
+        self.orientation_offset_deg = 270.0  # Compensa la diferencia entre orientación del ArUco y el heading real del robot.
+        self.robot_timeout_s = 0.8
+        self.spin_angular_speed = 0.8 * self.max_angular_speed
+        self.spin_duration_s = math.pi / max(1e-6, abs(self.spin_angular_speed))
+        self.spin_until = None
 
-        # Nota: ya no usamos llegada por "silencio" de topic; solo distancia
-        # (se mantiene la marca temporal por si se quiere debuggear detecciones)
-        self.silence_timeout = 0.8
+        # Publicar comando como mucho a 1 Hz
+        self.control_timer = self.create_timer(1.0, self.control_step)
 
-        # Estado
-        self.running = True
-        self.is_navigating = False
+        self.get_logger().info(
+            'AutonomousArucoRoute started: acquiring static ArUcos and following route '
+            + '->'.join(map(str, self.route))
+        )
 
-        # Hilo de control
-        self.control_thread = threading.Thread(target=self._control_loop, daemon=True)
-        self.control_thread.start()
-
-        self.get_logger().info('AutonomousArucoRoute started: following route ' + '->'.join(map(str, self.route)))
-
-    def aruco_cb(self, msg: String, tid: int):
-        """Callback por tópico `/overhead_camera/aruco_{id}`.
-        Espera un JSON en `msg.data` con campos: id, px, py, orientation, ...
-        """
+    def _parse_aruco_json(self, msg: String):
         try:
             data = json.loads(msg.data)
         except Exception:
-            return
-
+            return None
         try:
             px = float(data.get('px', 0.0))
             py = float(data.get('py', 0.0))
             orientation = float(data.get('orientation', 0.0))
         except Exception:
+            return None
+        return px, py, orientation
+
+    def static_aruco_cb(self, msg: String, tid: int):
+        """Lee una sola vez el ArUco estático tid y destruye la suscripción."""
+        if tid in self.static_markers:
             return
 
-        with self.lock:
-            self.raw[tid] = {'px': px, 'py': py, 'orientation': orientation, 'last_seen': time.time()}
+        parsed = self._parse_aruco_json(msg)
+        if parsed is None:
+            return
+
+        px, py, _orientation = parsed
+        self.static_markers[tid] = {'px': px, 'py': py}
+
+        sub = self._static_subs.pop(tid, None)
+        if sub is not None:
+            self.destroy_subscription(sub)
+
+        self.get_logger().info(f'Static ArUco {tid} captured at (px,py)=({px:.1f},{py:.1f})')
+
+    def robot_cb(self, msg: String):
+        """Callback continuo del ArUco del robot (ID 3)."""
+        parsed = self._parse_aruco_json(msg)
+        if parsed is None:
+            return
+
+        px, py, orientation = parsed
+        self.robot = {'px': px, 'py': py, 'orientation': orientation, 'last_seen': time.time()}
+
+        if not getattr(self, '_robot_detect_log', False):
+            self.get_logger().info(f'Robot ArUco {self.robot_id} detected at (px,py)=({px:.1f},{py:.1f})')
+            self._robot_detect_log = True
 
     def publish_twist(self, linear_x=0.0, angular_z=0.0):
         t = Twist()
@@ -92,126 +129,103 @@ class AutonomousArucoRoute(Node):
         t.angular.z = float(angular_z)
         self.cmd_pub.publish(t)
 
-    def calculate_navigation_vector(self, target_id):
-        """Calcula (angle_error_deg, distance_px) entre robot (aruco 3) y target.
+    @staticmethod
+    def _clamp(value: float, min_value: float, max_value: float) -> float:
+        return max(min(value, max_value), min_value)
 
-        Retorna:
-        - ('robot_missing', None) si robot no visible
-        - ('target_missing', None) si objetivo no visible (se espera)
-        - (angle_error_deg, distance_px) en caso normal
-        """
-        now = time.time()
-        with self.lock:
-            robot = self.raw.get(3)
-            target = self.raw.get(target_id)
+    @staticmethod
+    def _normalize_angle_deg(angle_deg: float) -> float:
+        while angle_deg > 180.0:
+            angle_deg -= 360.0
+        while angle_deg < -180.0:
+            angle_deg += 360.0
+        return angle_deg
 
-        # Si target no visible → reportar y esperar (NO declarar llegada)
+    def control_step(self):
+        """Paso de control (1 Hz): calcula y publica Twist de forma simultánea."""
+
+        # Esperar si aún no tenemos todos los ArUcos estáticos
+        if len(self.static_markers) < len(self.static_ids):
+            self.publish_twist(0.0, 0.0)
+            if not hasattr(self, '_startup_log_counter'):
+                self._startup_log_counter = 0
+            self._startup_log_counter += 1
+            if self._startup_log_counter % 5 == 0:
+                missing = [tid for tid in self.static_ids if tid not in self.static_markers]
+                self.get_logger().info(f'Waiting for static ArUcos: {missing}')
+            return
+
+        # Ruta finalizada
+        if self.route_index >= len(self.route):
+            if not getattr(self, '_done_logged', False):
+                self.get_logger().info('Route complete. Stopping.')
+                self._done_logged = True
+            self.publish_twist(0.0, 0.0)
+            return
+
+        target_id = self.route[self.route_index]
+        target = self.static_markers.get(target_id)
         if target is None:
-            return 'target_missing', None
+            self.publish_twist(0.0, 0.0)
+            self.get_logger().info(f'Waiting: target ArUco {target_id} not captured yet')
+            return
 
-        # Si robot no visible
-        if robot is None or (now - robot.get('last_seen', 0.0) > self.silence_timeout):
-            return 'robot_missing', None
+        now = time.time()
+        if self.robot is None or (now - self.robot.get('last_seen', 0.0) > self.robot_timeout_s):
+            if not getattr(self, '_robot_timeout_logged', False):
+                self.get_logger().warning('Robot pose unavailable or timeout; stopping.')
+                self._robot_timeout_logged = True
+            self.publish_twist(0.0, 0.0)
+            return
+
+        self._robot_timeout_logged = False
 
         # Coordenadas en imagen (px,py)
-        robot_x_img = robot['px']
-        robot_y_img = robot['py']
+        robot_x_img = self.robot['px']
+        robot_y_img = self.robot['py']
         target_x_img = target['px']
         target_y_img = target['py']
 
-        # Convertir a coordenadas de mundo como hace el código original (invertir signos)
-        robot_x = -robot_x_img
+        # Convertir a coords matemáticas (y arriba)
+        robot_x = robot_x_img
         robot_y = -robot_y_img
-        target_x = -target_x_img
+        target_x = target_x_img
         target_y = -target_y_img
 
         dx = target_x - robot_x
         dy = target_y - robot_y
-        distance = math.hypot(dx, dy)
+        distance_px = math.hypot(dx, dy)
 
-        target_angle_rad = math.atan2(dy, dx)
-        target_angle_deg = math.degrees(target_angle_rad)
+        # Llegada por distancia
+        if distance_px < self.distance_threshold_px:
+            self.publish_twist(0.0, 0.0)
+            self.get_logger().info(f'Arrived at ArUco {target_id} (distance threshold). Initiating 180° spin.')
+            self.spin_until = time.time() + self.spin_duration_s
+            self.route_index += 1
+            return
 
-        robot_orientation = robot.get('orientation', 0.0)
-        angle_error = target_angle_deg - robot_orientation
+        target_angle_deg = math.degrees(math.atan2(dy, dx))
+        raw_orientation_deg = float(self.robot.get('orientation', 0.0))
+        robot_orientation_deg = -raw_orientation_deg + self.orientation_offset_deg
+        robot_orientation_deg = self._normalize_angle_deg(robot_orientation_deg)
+        angle_error_deg = self._normalize_angle_deg(target_angle_deg - robot_orientation_deg)
 
-        # Normalizar a [-180, 180]
-        while angle_error > 180:
-            angle_error -= 360
-        while angle_error < -180:
-            angle_error += 360
+        # Control proporcional simultáneo
+        angular_z = -self.angular_kp * angle_error_deg
+        angular_z = self._clamp(angular_z, -self.max_angular_speed, self.max_angular_speed)
 
-        return angle_error, distance
+        linear_x = self.linear_kp * distance_px
+        linear_scale = max(0.0, 1.0 - abs(angle_error_deg) / 180.0)
+        linear_x *= linear_scale
+        linear_x = self._clamp(linear_x, 0.0, self.max_linear_speed)
 
-    def _control_loop(self):
-        rate = 10.0
-        dt = 1.0 / rate
+        self.get_logger().info(
+            f'Target {target_id}: dist_px={distance_px:.1f}, target_angle={target_angle_deg:.1f}, '
+            f'robot_heading={robot_orientation_deg:.1f}, angle_error={angle_error_deg:.1f}, '
+            f'cmd_linear={linear_x:.3f}, cmd_angular={angular_z:.3f}'
+        )
 
-        # Comenzar la primera navegación automáticamente
-        self.is_navigating = True
-
-        while self.running:
-            if not self.is_navigating:
-                # No hay navegación activa: detener robot y dormir
-                self.publish_twist(0.0, 0.0)
-                time.sleep(dt)
-                continue
-
-            if self.route_index >= len(self.route):
-                self.get_logger().info('Route complete. Stopping.')
-                self.publish_twist(0.0, 0.0)
-                self.is_navigating = False
-                break
-
-            target_id = self.route[self.route_index]
-
-            nav = self.calculate_navigation_vector(target_id)
-
-            # robot_missing
-            if nav[0] == 'robot_missing':
-                # si robot no se ve, esperar
-                time.sleep(dt)
-                continue
-
-            # target not visible -> esperar hasta que vuelva a aparecer
-            if nav[0] == 'target_missing':
-                # mantener parada mientras no vemos el objetivo
-                self.publish_twist(0.0, 0.0)
-                # opcional log esporádico
-                if not hasattr(self, '_missing_log_counter'):
-                    self._missing_log_counter = 0
-                self._missing_log_counter += 1
-                if self._missing_log_counter % 20 == 0:
-                    self.get_logger().info(f'Waiting: target ArUco {target_id} not visible yet')
-                time.sleep(dt)
-                continue
-
-            angle_error, distance = nav
-
-            # Llegada por distancia cercana (por redundancia)
-            if distance < self.distance_threshold_px:
-                self.publish_twist(0.0, 0.0)
-                self.get_logger().info(f'Arrived at ArUco {target_id} (distance threshold)')
-                self.route_index += 1
-                time.sleep(0.5)
-                continue
-
-            # Fase de giro
-            if abs(angle_error) > self.angle_tolerance_deg:
-                angular_z = -angle_error * self.turn_kp
-                # limitar
-                angular_z = max(min(angular_z, self.turn_speed_rad), -self.turn_speed_rad)
-                self.publish_twist(0.0, angular_z)
-            else:
-                # Avanzar manteniendo pequeña corrección angular
-                angular_z = -angle_error * self.turn_kp * 0.6
-                self.publish_twist(self.forward_speed, angular_z)
-
-            time.sleep(dt)
-
-        # A la salida, asegurar robot parado
-        self.publish_twist(0.0, 0.0)
-
+        self.publish_twist(linear_x, angular_z)
 
 def main(args=None):
     rclpy.init(args=args)
@@ -221,13 +235,9 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        node.running = False
-        # pequeña pausa para terminar hilos
-        time.sleep(0.2)
         node.publish_twist(0.0, 0.0)
         node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
