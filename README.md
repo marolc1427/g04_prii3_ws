@@ -1,4 +1,4 @@
-# Sprint 4 — Turtlebot en la Eurobot 2026
+# Sprint 5 — Eurobot 2026
 
 ![ROS2 Foxy](https://img.shields.io/badge/ROS2-Foxy-red?style=for-the-badge&logo=ros)
 ![Ubuntu 20.04](https://img.shields.io/badge/OS-Ubuntu_20.04-orange?style=for-the-badge&logo=ubuntu)
@@ -6,17 +6,19 @@
 ![Status](https://img.shields.io/badge/Status-Development-yellow?style=for-the-badge)
 
 ### ¿Cómo puedo ayudar?
-* Implementar en el paquete de JetBot el código adaptado para el robot real.
-* Podríamos crear un archivo .sh para ejecutar todo el proyecto desde una única terminal.
-* Falta actualizar el readme con las novedades anteriores ya implementadas.
+* Proponer en el grupo reunirse para probar en el laboratorio los últimos cambios.
+
   
 ### Instrucciones y versiones:
 * Se recomienda usar el workspace de ROS2 para usar los comandos explicados, sino, las rutas serán diferentes que las indicadas.
 * Se debe de utilizar la versión de OpenCV 4.6, sino la detección de los ArUcos no será óptima para el trabajo.
+* Se debe mantener el repositorio al día para que el resto del equipo pueda trabajar sin problemas.
+
+## Simulación:
 
 ---
 
-## 0) Clonar el repo (Terminal 1)
+### 0) Clonar el repo (Terminal 1)
 
 ```bash
 git clone https://github.com/marolc1427/g04_prii3_ws
@@ -24,7 +26,7 @@ git clone https://github.com/marolc1427/g04_prii3_ws
 
 ---
 
-## 1) Ejecutar el mundo en Gazebo (Terminal 1)
+### 1) Ejecutar el mundo en Gazebo (Terminal 1)
 Primeramente, se debe de extraer en una ruta conocida para Gazebo los modelos que vamos a utilizar (ArUcos, tablero, valla y robot waffle personalizado).
 
 ```bash
@@ -42,27 +44,9 @@ ros2 launch g04_prii3_eurobot_turtlebot eurobot_world.launch.py
 
 ---
 
-## 2.1) Lectura de ArUcos y visualización (Terminal 2)
+### 2) Lectura de ArUcos y visualización new_eurobot_basic.py (Terminal 2)
 
-Detección de ArUcos y publicación de tópicos.
-
-```bash
-source install/setup.bash
-ros2 launch g04_prii3_eurobot_turtlebot eurobot_basic_launch.py
-```
-
-Visualización en RViz2 (añade un display Image apuntando a `/overhead_camera/image_annotated`):
-```bash
-rviz2
-```
-
-Comprobación por terminal de las detecciones:
-```bash
-ros2 topic echo /overhead_camera/aruco_detections
-```
-## 2.2) Lectura de ArUcos y visualización new_eurobot_basic.py (Terminal 2)
-
-Este nuevo nodo extiende `eurobot_basic.py` con publicaciones por ID y pequeños cambios en el formato.
+Este nodo extiende el antiguo `eurobot_basic.py` con publicaciones por ID y pequeños cambios en el formato.
 
 **Diferencias clave**
 
@@ -95,17 +79,77 @@ Ejemplo de mensaje por ID:
 {"id":20,"px":961.824,"py":479.809,"orientation":-179.707,"rvec":[-0.0041,-3.0299,1.5708],"tvec":[0.1203,0.0301,0.8502]}
 ```
 
+---
 
-## 3.1) Movimiento del Robot (Terminal 3)
+### 3) Movimiento del Robot (Terminal 3)
 
 ```bash
 source install/setup.bash
-ros2 run g04_prii3_eurobot_turtlebot aruco_go_to
+ros2 run g04_prii3_eurobot_turtlebot new_aruco_go_to
 ```
 
-## 3.2) Movimiento del Robot autónomo (Terminal 3)
+---
+
+## Ejecución en el tablero real
+
+#### Recomendaciones:
+* Usar un USB con el repositorio en vez de hacer un clone.
+* Comprobar que el robot puede leer la información de los ArUcos mediante: 
 
 ```bash
+ros2 topic list
+```
+Y también: 
+
+```bash
+ros2 topic echo /overhead_camera/aruco_20
+ros2 topic echo /overhead_camera/aruco_8
+```
+---
+
+## 1) Arranque de la cámara:
+
+El código con la detección de los ArUcos ya está en el disco duro de la Jetson Nano. Por lo que solo debemos de hacer funcionar a la cámara y ejecutar el nodo de detección:
+
+Terminal 1:
+```bash
+ros2 launch jetbot_pro_ros2 gscam.py
+```
+
+Terminal 2:
+```bash
+source install/setup.bash
+ros2 launch g04_prii3_eurobot_turtlebot new_eurobot_basic.launch.py
+```
+
+Debemos de asegurarnos de estar conectados a la misma red con la cámara cenital y con el robot.
+
+---
+
+## 2) Arranque del robot:
+
+Se recomienda usar la ssh (en todas las terminales que vamos a abrir) para no depender del cable HDMI para controlar el robot:
+
+```bash
+ssh -X jetbot@IP
+```
+
+El usuario y contraseña son:
+
+```bash
+Usuario: jetbot
+Contraseña: jetbot
+```
+
+Terminal 1 (activación de los motores y LiDAR):
+
+```bash
+ros2 run jetbot_pro_ros2 jetbot
+```
+
+Terminal 2 (compilación y ejecución):
+```bash
+colcon build --packages-select g04_prii3_eurobot_turtlebot
 source install/setup.bash
 ros2 run g04_prii3_eurobot_turtlebot new_aruco_go_to
 ```
