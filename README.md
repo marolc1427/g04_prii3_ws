@@ -6,7 +6,7 @@
 ![Status](https://img.shields.io/badge/Status-Development-yellow?style=for-the-badge)
 
 ### ¿Cómo puedo ayudar?
-* Proponer en el grupo reunirse para probar en el laboratorio los últimos cambios.
+* Prepararse la presentación y las preguntas de los profesores.
 
   
 ### Instrucciones y versiones:
@@ -44,7 +44,7 @@ ros2 launch g04_prii3_eurobot_turtlebot eurobot_world.launch.py
 
 ---
 
-### 2) Lectura de ArUcos y visualización new_eurobot_basic.py (Terminal 2)
+### 2.1) Lectura de ArUcos y visualización new_eurobot_basic.py (Terminal 2)
 
 Este nodo extiende el antiguo `eurobot_basic.py` con publicaciones por ID y pequeños cambios en el formato.
 
@@ -77,6 +77,22 @@ Ejemplo de mensaje por ID:
 
 ```json
 {"id":20,"px":961.824,"py":479.809,"orientation":-179.707,"rvec":[-0.0041,-3.0299,1.5708],"tvec":[0.1203,0.0301,0.8502]}
+```
+
+### 2.2) Pattern Matching 
+
+**Cómo ejecutarlo**
+
+```bash
+cd ~/g04_prii3_ws
+source install/setup.bash
+ros2 launch g04_prii3_eurobot_turtlebot sprint5_pattern.launch.py
+```
+
+Comprobaciones por terminal:
+
+```bash
+ros2 topic echo /overhead_camera/warehouse_detections
 ```
 
 ---
