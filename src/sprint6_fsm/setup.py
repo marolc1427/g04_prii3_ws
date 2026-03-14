@@ -11,7 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'transitions'],
     zip_safe=True,
     maintainer='marolc',
     maintainer_email='marcosoc2005@gmail.com',
@@ -20,6 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'fsm_sprint6 = sprint6_fsm.fsm_sprint6:main',
+            'test = sprint6_fsm.test:main',
+            'prueba = sprint6_fsm.prueba:main',
         ],
     },
 )
