@@ -1,3 +1,34 @@
+# Sprint 6 - Eurobot 2026
+
+## Ejecución en JetBot
+
+### 1) Clonar el repositorio
+
+```bash
+git clone https://github.com/marolc1427/g04_prii3_ws
+```
+
+### 2) Terminal 1, arranque de motores y cámara
+
+```bash
+ros2 launch jetbot_pro_ros2 jetbot.py
+```
+
+### 3) Terminal 2, lanzar el nodo de detección de ArUcos
+
+```bash
+colcon build --packages-select sprint6_fsm
+source install/setup.bash
+ros2 run sprint6_fsm deteccion_jetbot
+```
+
+### 4) Terminal 3, lanzar el nodo FSM
+
+```bash
+source install/setup.bash
+ros2 run sprint6_fsm test
+```
+
 # Sprint 5 — Eurobot 2026
 
 ![ROS2 Foxy](https://img.shields.io/badge/ROS2-Foxy-red?style=for-the-badge&logo=ros)
