@@ -1,202 +1,104 @@
-# Sprint 6 - Eurobot 2026
+# Sprint 7 — Eurobot 2026
 
-## Ejecución en JetBot
-
-### 1) Clonar el repositorio
-
-```bash
-git clone https://github.com/marolc1427/g04_prii3_ws
-```
-
-### 2) Terminal 1, arranque de motores y cámara
+## Ejecución:
 
 ```bash
 ros2 launch jetbot_pro_ros2 jetbot.py
 ```
 
-### 3) Terminal 2, lanzar el nodo de detección de ArUcos
-
 ```bash
-colcon build --packages-select sprint6_fsm
+colcon build --packages-select sprint_7
 source install/setup.bash
-ros2 run sprint6_fsm deteccion_jetbot
+ros2 run sprint_7 sprint_7_node
 ```
 
-### 4) Terminal 3, lanzar el nodo FSM
+---
 
-```bash
-source install/setup.bash
-ros2 run sprint6_fsm test
-```
+# Sprint 8 - Eurobot 2026
 
-# Sprint 5 — Eurobot 2026
+---
 
-![ROS2 Foxy](https://img.shields.io/badge/ROS2-Foxy-red?style=for-the-badge&logo=ros)
+## Arquitectura y metodología de trabajo:
+
+En este apartado se explica la metodología de trabajo para el sprint 8. Por lo que se recomienda leer este apartado y comprenderlo en profunidad. Ante cualquier duda / idea / problema, preguntad en el grupo de Whatsapp o en clase.
+
+> [!IMPORTANTE]
+> El Sprint 8 aún se encuentra en desarrollo, por lo que es posible que haya cambios en la metodología de trabajo o en las instrucciones.
+
+---
+
+### Ordenador Fijo, Ubuntu 20.04 LTS y ROS2 Foxy
+
 ![Ubuntu 20.04](https://img.shields.io/badge/OS-Ubuntu_20.04-orange?style=for-the-badge&logo=ubuntu)
+![ROS2 Foxy](https://img.shields.io/badge/ROS2-Foxy-red?style=for-the-badge&logo=ros)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.6-green?style=for-the-badge&logo=opencv)
-![Status](https://img.shields.io/badge/Status-Development-yellow?style=for-the-badge)
 
-### ¿Cómo puedo ayudar?
-* Prepararse la presentación y las preguntas de los profesores.
+El ordenador fijo funciona como centro de operaciones, en él se ejecutan los nodos:
+* Nodo para arrancar la cámara cenital.
+* Nodo para la homografía.
+* Nodo para la detección de los ArUcos.
+* Nodo para el pattern matching. En su defecto, poner coordenadas (x,y) hardcodeadas en los puntos de dejada de las piezas.
 
-  
-### Instrucciones y versiones:
-* Se recomienda usar el workspace de ROS2 para usar los comandos explicados, sino, las rutas serán diferentes que las indicadas.
-* Se debe de utilizar la versión de OpenCV 4.6, sino la detección de los ArUcos no será óptima para el trabajo.
-* Se debe mantener el repositorio al día para que el resto del equipo pueda trabajar sin problemas.
+El único nodo "que es leído" por el robot móvil es el de detección de ArUcos. Este nodo publica un topic por cada ID de ArUco detectado que no sea 20, 21, 22 ni 23. Estos IDs son de los ArUcos del tablero, por lo que no son piezas a recoger. 
 
-## Simulación:
+Para cada ArUco, se publica un topic con la información de su posición (px, py) y orientación. Con el fin de que el robot, con un ArUco encima y el ArUco de la pieza, sepa dirijirse hacia ella. 
 
----
-
-### 0) Clonar el repo (Terminal 1)
-
+Se recomienda usar el siguiente comando para observar los topics publicados:
 ```bash
-git clone https://github.com/marolc1427/g04_prii3_ws
+ros2 topic echo /topic_name
+```
+
+Se recomienda usar el siguiente comando para observar la detección de los ArUcos en RViz2:
+```bash
+rviz2
 ```
 
 ---
 
-### 1) Ejecutar el mundo en Gazebo (Terminal 1)
-Primeramente, se debe de extraer en una ruta conocida para Gazebo los modelos que vamos a utilizar (ArUcos, tablero, valla y robot waffle personalizado).
+### Robot móvil, Ubuntu 22.04 LTS y ROS2 Humble
+
+![Ubuntu 22.04](https://img.shields.io/badge/OS-Ubuntu_22.04-orange?style=for-the-badge&logo=ubuntu) 
+![ROS2 Humble](https://img.shields.io/badge/ROS2-Humble-red?style=for-the-badge&logo=ros)
+![OpenCV](https://img.shields.io/badge/OpenCV-4.6-green?style=for-the-badge&logo=opencv)
+
+En el robot móvil se ejecuta lo siguiente:
+* Nodo de movimiento del robot y recogida de piezas. 
+* Comunicación con la placa Arduino para el control de los motores.
+
+En cuanto al nodo de movimiento, se ha implementado una FSM donde cada estado representa una fase del proceso de movimiento y recogida de piezas. 
+
+La FSM tiene los siguientes estados:
+1. **Aproximación a pieza**: el robot móvil se aproxima a la pieza a recoger con el identificador ArUco más bajo utilizando la información de posición y orientación del ArUco. Si el robot se acerca lo suficiente a la pieza, pasa al estado de "Recogida de pieza".
+2. **Recogida de pieza**: el robot activa el mecanismo de recogida para coger la pieza. Para ello, el robot se encara a la pieza y mueve el brazo para recogerla. Activa las ventosas y levanta la pieza del tablero. Si la recogida es exitosa, pasa al estado de "Dejada de pieza".
+3. **Dejada de pieza**: Una vez recogida la pieza, el robot se dirige hacia la zona de dejada. Si el robot se acerca lo suficiente a la zona de dejada, suelta la pieza y vuelve al estado de "Aproximación a pieza".
+
+---
+
+## Ejecución:
+
+### Ordenador fijo:
+
+1. Terminal 1, compilar y lanzar el nodo de arranque de la cámara cenital:
 
 ```bash
-unzip src/g04_prii3_eurobot_turtlebot/worlds/models/modelos.zip -d ~/.gazebo/models/
-```
-
-Tras ello, ya se puede compilar y cargar en nuestra terminal el entorno de ROS2.
-
-```bash
-colcon build --packages-select g04_prii3_eurobot_turtlebot
-export TURTLEBOT3_MODEL=waffle
+colcon build --packages-select sprint_8
 source install/setup.bash
-ros2 launch g04_prii3_eurobot_turtlebot eurobot_world.launch.py
+ros2 run sprint_8 webcam_node
 ```
 
----
-
-### 2.1) Lectura de ArUcos y visualización new_eurobot_basic.py (Terminal 2)
-
-Este nodo extiende el antiguo `eurobot_basic.py` con publicaciones por ID y pequeños cambios en el formato.
-
-**Diferencias clave**
-
-- **Topics por ID**: publica de forma individual en:
-	- `/overhead_camera/aruco_20`, `/overhead_camera/aruco_21`, `/overhead_camera/aruco_22`, `/overhead_camera/aruco_23`, `/overhead_camera/aruco_3`, `/overhead_camera/aruco_8`.
-- **Contenido JSON por ID**: incluye `id`, `px`, `py`, `orientation` y, si hay estimación de pose, `rvec` y `tvec` del marcador.
-- **Precisión**: valores redondeados a **4 decimales** en los topics por ID.
-- **Imagen anotada**: igual que el nodo anterior, publica `/overhead_camera/image_annotated` para visualizar en RViz2.
-- **Launch dedicado**: se lanza con `new_eurobot_basic.launch.py`.
-
-**Cómo ejecutarlo**
+2. Terminal 2, lanzar el nodo de la homografía:
 
 ```bash
-source install/setup.bash
-ros2 launch g04_prii3_eurobot_turtlebot new_eurobot_basic.launch.py
+ros2 run sprint_8 homography_node
 ```
 
-Opcional (visualización en RViz2): añade un display Image apuntando a `/overhead_camera/image_annotated`.
-
-Comprobaciones por terminal:
+3. Terminal 3, lanzar el nodo de detección de ArUcos:
 
 ```bash
-ros2 topic echo /overhead_camera/aruco_20
-ros2 topic echo /overhead_camera/aruco_8
+ros2 run sprint_8 aruco_detector_node
 ```
 
-Ejemplo de mensaje por ID:
+### Robot móvil:
 
-```json
-{"id":20,"px":961.824,"py":479.809,"orientation":-179.707,"rvec":[-0.0041,-3.0299,1.5708],"tvec":[0.1203,0.0301,0.8502]}
-```
+ToDo
 
-### 2.2) Pattern Matching 
-
-**Cómo ejecutarlo**
-
-```bash
-cd ~/g04_prii3_ws
-source install/setup.bash
-ros2 launch g04_prii3_eurobot_turtlebot sprint5_pattern.launch.py
-```
-
-Comprobaciones por terminal:
-
-```bash
-ros2 topic echo /overhead_camera/warehouse_detections
-```
-
----
-
-### 3) Movimiento del Robot (Terminal 3)
-
-```bash
-source install/setup.bash
-ros2 run g04_prii3_eurobot_turtlebot new_aruco_go_to
-```
-
----
-
-## Ejecución en el tablero real
-
-#### Recomendaciones:
-* Usar un USB con el repositorio en vez de hacer un clone.
-* Comprobar que el robot puede leer la información de los ArUcos mediante: 
-
-```bash
-ros2 topic list
-```
-Y también: 
-
-```bash
-ros2 topic echo /overhead_camera/aruco_20
-ros2 topic echo /overhead_camera/aruco_8
-```
----
-
-## 1) Arranque de la cámara:
-
-El código con la detección de los ArUcos ya está en el disco duro de la Jetson Nano. Por lo que solo debemos de hacer funcionar a la cámara y ejecutar el nodo de detección:
-
-Terminal 1:
-```bash
-ros2 launch jetbot_pro_ros2 gscam.py
-```
-
-Terminal 2:
-```bash
-source install/setup.bash
-ros2 launch g04_prii3_eurobot_turtlebot new_eurobot_basic.launch.py
-```
-
-Debemos de asegurarnos de estar conectados a la misma red con la cámara cenital y con el robot.
-
----
-
-## 2) Arranque del robot:
-
-Se recomienda usar la ssh (en todas las terminales que vamos a abrir) para no depender del cable HDMI para controlar el robot:
-
-```bash
-ssh -X jetbot@IP
-```
-
-El usuario y contraseña son:
-
-```bash
-Usuario: jetbot
-Contraseña: jetbot
-```
-
-Terminal 1 (activación de los motores y LiDAR):
-
-```bash
-ros2 run jetbot_pro_ros2 jetbot
-```
-
-Terminal 2 (compilación y ejecución):
-```bash
-colcon build --packages-select g04_prii3_eurobot_turtlebot
-source install/setup.bash
-ros2 run g04_prii3_eurobot_turtlebot new_aruco_go_to
-```
