@@ -22,7 +22,7 @@ ros2 run sprint_7 sprint_7_node
 
 En este apartado se explica la metodología de trabajo para el sprint 8. Por lo que se recomienda leer este apartado y comprenderlo en profunidad. Ante cualquier duda / idea / problema, preguntad en el grupo de Whatsapp o en clase.
 
-> [!IMPORTANTE]
+> [!IMPORTANT]
 > El Sprint 8 aún se encuentra en desarrollo, por lo que es posible que haya cambios en la metodología de trabajo o en las instrucciones.
 
 ---
