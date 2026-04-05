@@ -5,73 +5,97 @@ from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
+import json
+import math
 
 class ArUcoDetectorNode(Node):
     def __init__(self):
         super().__init__('aruco_detector_node')
 
-        # Suscripción a la homografía
+        # Configuración de filtrado
+        self.ignored_ids = {20, 21, 22, 23}
+        # Definimos los 3 IDs que realmente nos interesan para los 3 tópicos
+        self.target_ids = {1, 2, 3}  # Ajusta estos IDs a tus necesidades reales
+
         self.subscription = self.create_subscription(
             Image, '/image_warped', self.image_callback, 10)
 
-        # Publicador de la imagen con dibujos (Visualizador)
         self.image_pub = self.create_publisher(Image, '/image_aruco_debug', 10)
 
-        # Diccionario de publicadores dinámicos para los Strings
-        self.string_publishers = {}
+        # Diccionario de publicadores para los 3 tópicos específicos
+        self.string_publishers = {
+            id_: self.create_publisher(String, f'/detection/aruco_{id_}', 10)
+            for id_ in self.target_ids
+        }
 
         self.bridge = CvBridge()
-        
-        # Configuración ArUco (Humble usa ArucoDetector)
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.parameters = cv2.aruco.DetectorParameters()
         self.detector = cv2.aruco.ArucoDetector(self.dictionary, self.parameters)
 
-    def get_aruco_publisher(self, aruco_id):
-        """Crea un publicador si no existe para ese ID específico."""
-        topic_name = f'/detection/aruco{aruco_id}'
-        if aruco_id not in self.string_publishers:
-            self.get_logger().info(f"Creando nuevo tópico: {topic_name}")
-            self.string_publishers[aruco_id] = self.create_publisher(String, topic_name, 10)
-        return self.string_publishers[aruco_id]
+    def calculate_angle(self, corners):
+        """Calcula el ángulo de rotación del marcador en grados."""
+        # Esquinas: [top-left, top-right, bottom-right, bottom-left]
+        tl = corners[0]
+        tr = corners[1]
+        
+        # Diferencia en Y y X entre la esquina superior derecha e izquierda
+        dx = tr[0] - tl[0]
+        dy = tr[1] - tl[1]
+        
+        # atan2 devuelve el ángulo en radianes. Convertimos a grados.
+        angle_rad = math.atan2(dy, dx)
+        return math.degrees(angle_rad)
 
     def image_callback(self, msg):
-        # Convertir imagen de ROS a OpenCV
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        
-        # Detección
         corners, ids, _ = self.detector.detectMarkers(cv_image)
 
         if ids is not None:
             ids_list = ids.flatten().tolist()
-            
-            # Dibujar marcadores sobre una copia para el visualizador
             debug_image = cv_image.copy()
             cv2.aruco.drawDetectedMarkers(debug_image, corners, ids)
 
             for i, aruco_id in enumerate(ids_list):
-                # Calcular centro en la imagen de homografía
-                center = np.mean(corners[i][0], axis=0)
+                # 1. Filtro de exclusión
+                if aruco_id in self.ignored_ids:
+                    continue
                 
-                # Publicar el String en el tópico correspondiente
-                msg_str = String()
-                msg_str.data = f"ID: {aruco_id} | Posicion Tablero: X={int(center[0])}, Y={int(center[1])}"
-                
-                pub = self.get_aruco_publisher(aruco_id)
-                pub.publish(msg_str)
+                # 2. Solo publicamos si está en nuestra lista de interés
+                if aruco_id in self.string_publishers:
+                    # Cálculo de posición (centro)
+                    center = np.mean(corners[i][0], axis=0)
+                    
+                    # Cálculo de ángulo
+                    angle = self.calculate_angle(corners[i][0])
 
-            # Publicar la imagen de debug
+                    # Creación del objeto JSON
+                    data = {
+                        "id": int(aruco_id),
+                        "x": round(float(center[0]), 2),
+                        "y": round(float(center[1]), 2),
+                        "angle": round(angle, 2)
+                    }
+
+                    msg_str = String()
+                    msg_str.data = json.dumps(data)
+                    
+                    self.string_publishers[aruco_id].publish(msg_str)
+
             self.image_pub.publish(self.bridge.cv2_to_imgmsg(debug_image, "bgr8"))
         else:
-            # Si no hay IDs, publicamos la imagen limpia
             self.image_pub.publish(self.bridge.cv2_to_imgmsg(cv_image, "bgr8"))
 
 def main(args=None):
     rclpy.init(args=args)
     node = ArUcoDetectorNode()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
