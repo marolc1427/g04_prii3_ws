@@ -89,13 +89,13 @@ ros2 run sprint_8 webcam_node
 2. Terminal 2, lanzar el nodo de la homografía:
 
 ```bash
-ros2 run sprint_8 homography_node
+ros2 run sprint_8 aruco_detector_node
 ```
 
-3. Terminal 3, lanzar el nodo de detección de ArUcos:
+3. Terminal 3, lanzar el nodo de movimiento:
 
 ```bash
-ros2 run sprint_8 aruco_detector_node
+ros2 run sprint_8 movimiento
 ```
 
 ### Robot móvil:

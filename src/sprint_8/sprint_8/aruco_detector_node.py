@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
+
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
-from cv_bridge import CvBridge
 import cv2
+from cv_bridge import CvBridge
 import numpy as np
 import json
 import math
@@ -13,43 +15,51 @@ class ArUcoDetectorNode(Node):
         super().__init__('aruco_detector_node')
 
         # Configuración de filtrado
-        self.ignored_ids = {20, 21, 22, 23}
-        # Definimos los 3 IDs que realmente nos interesan para los 3 tópicos
-        self.target_ids = {1, 2, 3}  # Ajusta estos IDs a tus necesidades reales
+        self.ignored_ids = {}
+        self.target_ids = {3,20,21,22,23} 
 
+        # Suscripción a la imagen sin la homografía
         self.subscription = self.create_subscription(
-            Image, '/image_warped', self.image_callback, 10)
+            Image, '/camera/image_raw_genital', self.image_callback, 10)
 
         self.image_pub = self.create_publisher(Image, '/image_aruco_debug', 10)
 
-        # Diccionario de publicadores para los 3 tópicos específicos
+        # Diccionario de publicadores específicos
         self.string_publishers = {
             id_: self.create_publisher(String, f'/detection/aruco_{id_}', 10)
             for id_ in self.target_ids
         }
 
         self.bridge = CvBridge()
-        self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-        self.parameters = cv2.aruco.DetectorParameters()
-        self.detector = cv2.aruco.ArucoDetector(self.dictionary, self.parameters)
+
+        # --- CAMBIO PARA FOXY / OPENCV 4.6 ---
+        # Usamos el API antiguo de ArUco
+        self.dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
+        self.parameters = cv2.aruco.DetectorParameters_create()
+
+        self.get_logger().info("✅ Detector de ArUcos post-homografía iniciado (Foxy)")
 
     def calculate_angle(self, corners):
-        """Calcula el ángulo de rotación del marcador en grados."""
-        # Esquinas: [top-left, top-right, bottom-right, bottom-left]
+        """
+        Calcula el ángulo de rotación del marcador.
+        corners viene como [4, 2] -> [top-left, top-right, bottom-right, bottom-left]
+        """
         tl = corners[0]
         tr = corners[1]
         
-        # Diferencia en Y y X entre la esquina superior derecha e izquierda
         dx = tr[0] - tl[0]
         dy = tr[1] - tl[1]
         
-        # atan2 devuelve el ángulo en radianes. Convertimos a grados.
+        # atan2 para obtener el ángulo en el plano de la imagen
         angle_rad = math.atan2(dy, dx)
         return math.degrees(angle_rad)
 
     def image_callback(self, msg):
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        corners, ids, _ = self.detector.detectMarkers(cv_image)
+        
+        # --- DETECCIÓN API FOXY ---
+        corners, ids, _ = cv2.aruco.detectMarkers(
+            cv_image, self.dictionary, parameters=self.parameters)
 
         if ids is not None:
             ids_list = ids.flatten().tolist()
@@ -57,19 +67,19 @@ class ArUcoDetectorNode(Node):
             cv2.aruco.drawDetectedMarkers(debug_image, corners, ids)
 
             for i, aruco_id in enumerate(ids_list):
-                # 1. Filtro de exclusión
+                # 1. Filtro: Ignoramos los que forman el tablero
                 if aruco_id in self.ignored_ids:
                     continue
                 
-                # 2. Solo publicamos si está en nuestra lista de interés
-                if aruco_id in self.string_publishers:
-                    # Cálculo de posición (centro)
+                # 2. Publicamos si es uno de nuestros objetivos (1, 2 o 3)
+                if aruco_id in self.target_ids:
+                    # Cálculo de posición (promedio de las 4 esquinas)
                     center = np.mean(corners[i][0], axis=0)
                     
-                    # Cálculo de ángulo
+                    # Cálculo de ángulo relativo al eje X de la imagen
                     angle = self.calculate_angle(corners[i][0])
 
-                    # Creación del objeto JSON
+                    # Empaquetado JSON
                     data = {
                         "id": int(aruco_id),
                         "x": round(float(center[0]), 2),
@@ -81,9 +91,11 @@ class ArUcoDetectorNode(Node):
                     msg_str.data = json.dumps(data)
                     
                     self.string_publishers[aruco_id].publish(msg_str)
+                    # self.get_logger().info(f"Publicando ID {aruco_id}")
 
             self.image_pub.publish(self.bridge.cv2_to_imgmsg(debug_image, "bgr8"))
         else:
+            # Si no hay marcadores, publicamos la imagen limpia para el debug
             self.image_pub.publish(self.bridge.cv2_to_imgmsg(cv_image, "bgr8"))
 
 def main(args=None):
@@ -94,7 +106,6 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
         rclpy.shutdown()
 
 if __name__ == '__main__':

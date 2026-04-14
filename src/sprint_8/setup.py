@@ -23,6 +23,7 @@ setup(
             'homography_node = sprint_8.homography_node:main',
             'aruco_detector_node = sprint_8.aruco_detector_node:main',
             'webcam_node = sprint_8.webcam_node:main',
+            'movimiento = sprint_8.movimiento:main',
         ],
     },
 )
