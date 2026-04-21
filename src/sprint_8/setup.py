@@ -24,6 +24,8 @@ setup(
             'aruco_detector_node = sprint_8.aruco_detector_node:main',
             'webcam_node = sprint_8.webcam_node:main',
             'movimiento = sprint_8.movimiento:main',
+            'pick_and_place = sprint_8.pick_and_place:main',
+            'aruco_visualizer = sprint_8.aruco_visualizer:main',
         ],
     },
 )

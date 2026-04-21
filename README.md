@@ -1,19 +1,3 @@
-# Sprint 7 — Eurobot 2026
-
-## Ejecución:
-
-```bash
-ros2 launch jetbot_pro_ros2 jetbot.py
-```
-
-```bash
-colcon build --packages-select sprint_7
-source install/setup.bash
-ros2 run sprint_7 sprint_7_node
-```
-
----
-
 # Sprint 8 - Eurobot 2026
 
 ---
@@ -35,9 +19,8 @@ En este apartado se explica la metodología de trabajo para el sprint 8. Por lo 
 
 El ordenador fijo funciona como centro de operaciones, en él se ejecutan los nodos:
 * Nodo para arrancar la cámara cenital.
-* Nodo para la homografía.
+* Nodo para la homografía (si se desea).
 * Nodo para la detección de los ArUcos.
-* Nodo para el pattern matching. En su defecto, poner coordenadas (x,y) hardcodeadas en los puntos de dejada de las piezas.
 
 El único nodo "que es leído" por el robot móvil es el de detección de ArUcos. Este nodo publica un topic por cada ID de ArUco detectado que no sea 20, 21, 22 ni 23. Estos IDs son de los ArUcos del tablero, por lo que no son piezas a recoger. 
 
@@ -76,6 +59,8 @@ La FSM tiene los siguientes estados:
 
 ## Ejecución:
 
+---
+
 ### Ordenador fijo:
 
 1. Terminal 1, compilar y lanzar el nodo de arranque de la cámara cenital:
@@ -98,7 +83,36 @@ ros2 run sprint_8 aruco_detector_node
 ros2 run sprint_8 movimiento
 ```
 
+---
+
 ### Robot móvil:
 
-ToDo
+1. Terminal 1, lanzar los topics del brazo:
+
+```bash
+cd ~/brazo_ws 
+source install/setup.bash 
+ros2 launch brazo_pkg bringup.launch.py 
+```
+
+2. Terminal 2, lanzar el topic de la cámara:
+
+```bash
+ros2 launch astra_camera astra_pro_plus.launch.xml 
+```
+
+3. Terminal 3, lanzar los topics de la ventosa y los motores:
+
+```bash
+cd ~/ros2_ws
+source install/setup.bash
+ros2 run robot_control robot_node
+```
+
+4. Terminal 4, ejecución de nodo principal:
+
+```bash
+source install/setup.bash
+ros2 run sprint_8 pick_and_place
+```
 
