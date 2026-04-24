@@ -20,7 +20,7 @@ class ArUcoDetectorNode(Node):
 
         # Suscripción a la imagen sin la homografía
         self.subscription = self.create_subscription(
-            Image, '/camera/image_raw_genital', self.image_callback, 10)
+            Image, '/image_warped', self.image_callback, 10)
 
         self.image_pub = self.create_publisher(Image, '/image_aruco_debug', 10)
 

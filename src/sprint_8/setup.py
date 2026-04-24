@@ -26,6 +26,7 @@ setup(
             'movimiento = sprint_8.movimiento:main',
             'pick_and_place = sprint_8.pick_and_place:main',
             'aruco_visualizer = sprint_8.aruco_visualizer:main',
+            'principal = sprint_8.principal:main',
         ],
     },
 )
