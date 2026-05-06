@@ -24,7 +24,9 @@ class ArmArucoController(Node):
 
         # --- PUBLICADORES Y SUSCRIPTORES ---
         self.arm_pub = self.create_publisher(JointTrajectory, '/arm_controller/joint_trajectory', 10)
-        self.ventosa_pub = self.create_publisher(Bool, '/ventosa_cmd', 10)
+        
+        # CORRECCIÓN: El topic ahora coincide exactamente con el del driver (/cmd_ventosa)
+        self.ventosa_pub = self.create_publisher(Bool, '/cmd_ventosa', 10)
         
         self.aruco_sub = self.create_subscription(String, '/detection/pieza_aruco', self.aruco_callback, 10)
 
@@ -60,7 +62,6 @@ class ArmArucoController(Node):
             self.get_logger().warn("Esperando al brazo...", once=True)
 
     def set_ready(self):
-        # Esta función puede ser llamada por timers, cancelamos si es necesario
         self.state = 0
         self.get_logger().info("Listo. Esperando ArUco centrado...")
 
@@ -74,48 +75,48 @@ class ArmArucoController(Node):
                 self.state = 1 # Bloqueamos nuevas detecciones
                 self.get_logger().info("¡Centrado! Iniciando ciclo de recogida.")
                 self.step_1_bajar_y_succionar()
-        except:
-            pass
+                
+        # CORRECCIÓN: Manejo de errores realista. Si falla, queremos saber por qué.
+        except json.JSONDecodeError:
+            self.get_logger().error(f"Error al decodificar JSON de ArUco: {msg.data}")
+        except KeyError as e:
+            self.get_logger().error(f"Falta una clave en el mensaje JSON: {e}")
+        except Exception as e:
+            self.get_logger().error(f"Error inesperado en callback de ArUco: {e}")
 
     # --- FLUJO DE LA SECUENCIA ---
 
     def step_1_bajar_y_succionar(self):
         self.get_logger().info("1. Bajando a por la pieza...")
         self.move_to_pose(self.pose_recogida)
-        # Esperamos a que llegue (2s) + un margen para succionar
         self.timer_step = self.create_timer(2.5, self.step_2_activar_succion)
 
     def step_2_activar_succion(self):
         self.timer_step.cancel()
         self.control_ventosa(True)
-        # Tiempo para que la ventosa haga vacío
         self.timer_step = self.create_timer(1.0, self.step_3_subir_a_garfio)
 
     def step_3_subir_a_garfio(self):
         self.timer_step.cancel()
         self.get_logger().info("2. Pieza cogida. Volviendo a pose GARFIO...")
         self.move_to_pose(self.pose_garfio)
-        # Esperamos a que llegue
         self.timer_step = self.create_timer(3.0, self.step_4_volver_a_recogida)
 
     def step_4_volver_a_recogida(self):
         self.timer_step.cancel()
         self.get_logger().info("3. Bajando de nuevo para soltar...")
         self.move_to_pose(self.pose_recogida)
-        # Esperamos a que llegue
         self.timer_step = self.create_timer(2.5, self.step_5_soltar_pieza)
 
     def step_5_soltar_pieza(self):
         self.timer_step.cancel()
         self.control_ventosa(False)
-        # Tiempo para que suelte la pieza físicamente
         self.timer_step = self.create_timer(1.0, self.step_6_finalizar)
 
     def step_6_finalizar(self):
         self.timer_step.cancel()
         self.get_logger().info("4. Ciclo completo. Regresando a pose GARFIO para esperar...")
         self.move_to_pose(self.pose_garfio)
-        # Esperar a estar arriba antes de permitir otra detección
         self.timer_step = self.create_timer(3.0, self.finish_reset)
 
     def finish_reset(self):

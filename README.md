@@ -4,11 +4,6 @@
 
 ## Arquitectura y metodología de trabajo:
 
-En este apartado se explica la metodología de trabajo para el sprint 8. Por lo que se recomienda leer este apartado y comprenderlo en profunidad. Ante cualquier duda / idea / problema, preguntad en el grupo de Whatsapp o en clase.
-
-> [!IMPORTANT]
-> El Sprint 8 aún se encuentra en desarrollo, por lo que es posible que haya cambios en la metodología de trabajo o en las instrucciones.
-
 ---
 
 ## Ordenador Fijo, Ubuntu 20.04 LTS y ROS2 Foxy
@@ -68,7 +63,7 @@ ros2 run sprint_8 aruco_detector_node
 
 En el robot móvil se ejecuta lo siguiente:
 * Fichero .ino con el mapeo de los pines de los motores y la ventosa.
-* Nodo con el puerto USB a la Arduino que publica un topic para el uso de la ventosa (/ventosa_cmd) y para los motores (/cmd_vel)
+* Nodo con el puerto USB a la Arduino que publica un topic para el uso de la ventosa (/ventosa_cmd) y para los motores (/cmd_motores)
 * Nodo de movimiento del robot y recogida de piezas. 
 
 En cuanto al nodo de movimiento, se ha implementado una FSM donde cada estado representa una fase del proceso de movimiento y recogida de piezas. 
@@ -77,6 +72,16 @@ La FSM tiene los siguientes estados:
 1. **Aproximación a pieza**: el robot móvil se aproxima a la pieza colocada SIEMPRE en la misma posición para recogerla (posición hardcodeada en coordenadas). Pasa al estado de "Recogida de pieza".
 2. **Recogida de pieza**: el robot activa el mecanismo de recogida para coger la pieza. Para ello, el robot se encara a la pieza y mueve el brazo para recogerla. Activa las ventosas y levanta la pieza del tablero. Pasa al estado de "Dejada de pieza".
 3. **Dejada de pieza**: Una vez recogida la pieza, el robot se dirige hacia la zona de dejada, hardcodeada también. Si el robot se acerca lo suficiente a la zona de dejada, suelta la pieza y finaliza la ejecución.
+
+## Comprobación:
+
+```bash
+ros2 topic pub --once /cmd_motores std_msgs/msg/Int32MultiArray "{data: [50, 50]}"
+```
+
+```bash
+ros2 topic pub --once /cmd_ventosa std_msgs/msg/Bool "{data: false}"
+```
 
 ## Ejecución:
 
@@ -106,5 +111,5 @@ ros2 run robot_control robot_node
 
 ```bash
 source install/setup.bash
-ros2 run sprint_8 pick_and_place
+ros2 run sprint_8 principal
 ```

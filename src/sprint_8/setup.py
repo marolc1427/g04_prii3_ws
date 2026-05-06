@@ -27,6 +27,7 @@ setup(
             'pick_and_place = sprint_8.pick_and_place:main',
             'aruco_visualizer = sprint_8.aruco_visualizer:main',
             'principal = sprint_8.principal:main',
+            'robot_drivers = sprint_8.robot_drivers:main',
         ],
     },
 )

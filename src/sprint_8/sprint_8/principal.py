@@ -4,139 +4,120 @@ import json
 import math
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String, Bool
-from geometry_msgs.msg import Twist
+from std_msgs.msg import String, Bool, Int32MultiArray
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 
 # =================================================================
-# VARIABLES GLOBALES DE CONFIGURACIÓN (Ajustar según tablero)
+# VARIABLES DE CONFIGURACIÓN
 # =================================================================
-# Posición aproximada de la pieza (Cámara Cenital)
-PICKUP_X = 450.0
-PICKUP_Y = 300.0
-PICKUP_THETA = 1.57  # Radianes (aprox 90 grados)
+PICKUP_X = 74.75
+PICKUP_Y = 169.25
+PICKUP_THETA = math.radians(-156.52) 
 
-# Posición de la zona de dejada (Cámara Cenital)
-DROP_X = 800.0
-DROP_Y = 600.0
-DROP_THETA = 0.0     # Radianes
+DROP_X = 406.5
+DROP_Y = 176.75
+DROP_THETA = math.radians(-80.54) 
 
-# Tolerancias
-TOLERANCIA_DIST_BASE = 15.0  # Píxeles (cenital)
-TOLERANCIA_ANGULO_BASE = 0.1 # Radianes
-TOLERANCIA_CENTRAD_BRAZO = 20.0 # Píxeles (cámara brazo)
+# --- AJUSTES DE PRECISIÓN MECÁNICA ---
+TOLERANCIA_DIST_BASE = 30.0    
+TOLERANCIA_ANGULO_BASE = 0.15   # ~8.5 grados
+DISTANCIA_ZONA_LENTA = 90.0   
+VEL_MAX = 15                   
+VEL_MIN = 10
+# CRÍTICA: Subimos a 12 porque 8 es una "orden fantasma" que no mueve el robot.
+VEL_GIRO_FINO = 12             
 # =================================================================
 
 class EurobotBrainNode(Node):
     def __init__(self):
         super().__init__('eurobot_brain_node')
 
-        # Parámetros del Brazo
         self.joint_names = ['Junta1', 'Junta2', 'Junta3']
         self.pose_garfio = [0.0, 1.0, 2.0] 
         self.pose_recogida = [1.25, 0.75, 1.0]
 
-        # Estados: 0: Viaje a pieza | 1: Centrado Brazo | 2: Recogida | 3: Viaje a dejada | 4: Dejada | 5: Fin
         self.state = 0
-        self.robot_pose = {'x': 0.0, 'y': 0.0, 'theta': 0.0}
-        self.pose_updated = False
+        self.robot_pose = None
         self.timer_step = None
 
-        # Publicadores
-        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.motor_pub = self.create_publisher(Int32MultiArray, '/cmd_motores', 10)
         self.arm_pub = self.create_publisher(JointTrajectory, '/arm_controller/joint_trajectory', 10)
-        self.ventosa_pub = self.create_publisher(Bool, '/ventosa_cmd', 10)
+        self.ventosa_pub = self.create_publisher(Bool, '/cmd_ventosa', 10)
         
-        # Suscriptores
         self.aruco_base_sub = self.create_subscription(String, '/detection/aruco_3', self.base_camera_callback, 10)
-        self.aruco_pieza_sub = self.create_subscription(String, '/detection/pieza_aruco', self.arm_camera_callback, 10)
 
         self.control_timer = self.create_timer(0.1, self.main_fsm_loop)
-        self.get_logger().info("Cerebro iniciado. Navegando a posición de recogida...")
+        self.get_logger().info("MODO PRECISIÓN V2: Corregido umbral de potencia mínima.")
 
     def base_camera_callback(self, msg):
         try:
             data = json.loads(msg.data)
-            self.robot_pose['x'] = float(data['x'])
-            self.robot_pose['y'] = float(data['y'])
-            # Conversión necesaria si el detector envía grados
-            self.robot_pose['theta'] = math.radians(float(data['angle']))
-            self.pose_updated = True
-        except: pass
+            self.robot_pose = {
+                'x': float(data['x']),
+                'y': float(data['y']),
+                'theta': math.radians(float(data.get('angle', 0.0)))
+            }
+        except Exception: pass
 
-    def arm_camera_callback(self, msg):
-        # Esta lógica solo se activa cuando el robot ya está en la zona de recogida
-        if self.state != 1: return
-        
-        try:
-            data = json.loads(msg.data)
-            err_x = abs(data['error_x'])
-            err_y = abs(data['error_y'])
-            
-            if err_x <= TOLERANCIA_CENTRAD_BRAZO and err_y <= TOLERANCIA_CENTRAD_BRAZO:
-                self.get_logger().info("¡Centrado preciso logrado! Iniciando secuencia mecánica.")
-                self.state = 2
-                self.secuencia_recogida()
-        except: pass
+    def _normalize_angle(self, angle):
+        return math.atan2(math.sin(angle), math.cos(angle))
 
     def main_fsm_loop(self):
-        if not self.pose_updated: return
+        if not self.robot_pose: return
 
-        if self.state == 0: # Navegación global a la pieza
+        if self.state == 0: 
             if self.navigate_to(PICKUP_X, PICKUP_Y, PICKUP_THETA):
-                self.get_logger().info("En zona. Buscando pieza con cámara del brazo...")
-                self.state = 1
+                self.get_logger().info("🎯 Posición y ángulo clavados. Recogiendo...")
+                self.state = 2
+                self.secuencia_recogida()
 
-        elif self.state == 3: # Navegación a zona de dejada
+        elif self.state == 3: 
             if self.navigate_to(DROP_X, DROP_Y, DROP_THETA):
+                self.get_logger().info("🎯 Posición y ángulo de dejada listos.")
                 self.state = 4
                 self.secuencia_dejada()
 
-        elif self.state in [1, 2, 4]: # Estados donde la base debe estar estática
+        elif self.state in [2, 4, 5]:
             self.stop_base()
 
     def navigate_to(self, tx, ty, t_theta):
-        """Calcula velocidad para llegar a X, Y y orientarse a THETA."""
         dx = tx - self.robot_pose['x']
         dy = ty - self.robot_pose['y']
-        dist = math.sqrt(dx**2 + dy**2)
+        dist = math.hypot(dx, dy)
         
-        # Error de ángulo hacia el objetivo (para avanzar)
-        target_angle = math.atan2(dy, dx)
-        error_angle_nav = math.atan2(math.sin(target_angle - self.robot_pose['theta']), 
-                                    math.cos(target_angle - self.robot_pose['theta']))
-        
-        # Error de ángulo final (orientación deseada)
-        error_angle_final = math.atan2(math.sin(t_theta - self.robot_pose['theta']), 
-                                      math.cos(t_theta - self.robot_pose['theta']))
+        target_heading = math.atan2(dy, dx)
+        error_angle_nav = self._normalize_angle(target_heading - self.robot_pose['theta'])
+        error_angle_final = self._normalize_angle(t_theta - self.robot_pose['theta'])
 
-        twist = Twist()
+        motor_msg = Int32MultiArray()
 
-        # 1. Si está lejos, navega hacia el punto
-        if dist > TOLERANCIA_DIST_BASE:
-            if abs(error_angle_nav) > 0.3:
-                twist.angular.z = 1.2 * error_angle_nav # Giro puro
+        # 1. AJUSTE FINO (Prioridad absoluta al ángulo cuando estamos cerca)
+        if dist < TOLERANCIA_DIST_BASE:
+            if abs(error_angle_final) > TOLERANCIA_ANGULO_BASE:
+                self.get_logger().info(f"Ajustando ángulo... Error: {math.degrees(error_angle_final):.1f}º", throttle_duration_sec=1.0)
+                
+                # Usamos VEL_GIRO_FINO (12) para asegurar que los motores venzan la fricción
+                motor_msg.data = [-VEL_GIRO_FINO, VEL_GIRO_FINO] if error_angle_final > 0 else [VEL_GIRO_FINO, -VEL_GIRO_FINO]
+                self.motor_pub.publish(motor_msg)
+                return False 
             else:
-                twist.linear.x = 0.2
-                twist.angular.z = 0.6 * error_angle_nav # Avance con corrección
-        
-        # 2. Si está cerca, se orienta al ángulo final
-        elif abs(error_angle_final) > TOLERANCIA_ANGULO_BASE:
-            twist.angular.z = 0.8 * error_angle_final
-            
-        # 3. En posición y orientado
-        else:
-            self.stop_base()
-            return True
+                self.stop_base()
+                return True
 
-        self.cmd_vel_pub.publish(twist)
+        # 2. NAVEGACIÓN GENERAL
+        current_vel = VEL_MAX if dist > DISTANCIA_ZONA_LENTA else VEL_MIN
+
+        if abs(error_angle_nav) > math.radians(25):
+            motor_msg.data = [-current_vel, current_vel] if error_angle_nav > 0 else [current_vel, -current_vel]
+        else:
+            motor_msg.data = [current_vel, current_vel]
+        
+        self.motor_pub.publish(motor_msg)
         return False
 
-    # --- SECUENCIAS MECÁNICAS (BRAZO Y VENTOSA) ---
-
+    # --- SECUENCIAS (Sin cambios) ---
     def secuencia_recogida(self):
-        self.get_logger().info("1. Bajando...")
         self.move_arm(self.pose_recogida)
         self.timer_step = self.create_timer(2.5, self.recogida_succion)
 
@@ -148,15 +129,13 @@ class EurobotBrainNode(Node):
     def recogida_subir(self):
         self.timer_step.cancel()
         self.move_arm(self.pose_garfio)
-        self.timer_step = self.create_timer(3.0, self.finalizar_recogida)
+        self.timer_step = self.create_timer(3.0, lambda: self.set_state(3))
 
-    def finalizar_recogida(self):
-        self.timer_step.cancel()
-        self.state = 3
-        self.get_logger().info("Pieza en garfio. Viajando a zona de dejada...")
+    def set_state(self, new_state):
+        if self.timer_step: self.timer_step.cancel()
+        self.state = new_state
 
     def secuencia_dejada(self):
-        self.get_logger().info("Bajando para soltar...")
         self.move_arm(self.pose_recogida)
         self.timer_step = self.create_timer(2.5, self.soltar_ventosa)
 
@@ -169,12 +148,10 @@ class EurobotBrainNode(Node):
         self.timer_step.cancel()
         self.move_arm(self.pose_garfio)
         self.state = 5
-        self.get_logger().info("Misión completada con éxito.")
+        self.get_logger().info("✅ Misión completada.")
 
-    # --- UTILIDADES ---
     def control_ventosa(self, activar: bool):
-        msg = Bool()
-        msg.data = activar
+        msg = Bool(); msg.data = activar
         self.ventosa_pub.publish(msg)
 
     def move_arm(self, positions):
@@ -187,13 +164,17 @@ class EurobotBrainNode(Node):
         self.arm_pub.publish(msg)
 
     def stop_base(self):
-        self.cmd_vel_pub.publish(Twist())
+        m = Int32MultiArray(); m.data = [0, 0]
+        self.motor_pub.publish(m)
 
 def main(args=None):
     rclpy.init(args=args)
     node = EurobotBrainNode()
     try: rclpy.spin(node)
     except KeyboardInterrupt: pass
-    finally: node.destroy_node(); rclpy.shutdown()
+    finally: 
+        node.stop_base()
+        node.destroy_node()
+        rclpy.shutdown()
 
-if __name__ == '__main__': main()
+if __name__ == '__main__': main()   
